@@ -39,3 +39,51 @@ async function loadDriveCertificates(){
  }catch(error){count.textContent='Não foi possível carregar os certificados.';document.querySelector('#empty').hidden=false;document.querySelector('#empty').textContent='Consulte os certificados diretamente na pasta do Google Drive.';}
 }
 loadDriveCertificates();
+
+
+// Public repositories only: no GitHub token is shipped to visitors.
+(function initProjects(){
+ const track=document.querySelector('#projects-track');
+ if(!track)return;
+ const previous=document.querySelector('#projects-prev'),next=document.querySelector('#projects-next'),status=document.querySelector('#projects-status');
+ const cacheKey='gb-public-projects-v3',lifetime=60*60*1000;
+ function controls(){previous.disabled=track.scrollLeft<=2;next.disabled=track.scrollLeft+track.clientWidth>=track.scrollWidth-2;}
+ function move(direction){const card=track.querySelector('.project-card');if(!card)return;const gap=parseFloat(getComputedStyle(track).gap)||20;track.scrollBy({left:direction*(card.getBoundingClientRect().width+gap),behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});}
+ previous.addEventListener('click',()=>move(-1));next.addEventListener('click',()=>move(1));track.addEventListener('scroll',controls,{passive:true});new ResizeObserver(controls).observe(track);
+ track.addEventListener('keydown',event=>{if(event.target!==track)return;if(event.key==='ArrowRight'||event.key==='ArrowLeft'){event.preventDefault();move(event.key==='ArrowRight'?1:-1);}});
+ function render(repos){
+  const fragment=document.createDocumentFragment();
+  repos.forEach((repo,index)=>{
+   const card=document.createElement('article');card.className='project-card';
+   const label=document.createElement('p');label.className='eyebrow';label.textContent=`${String(index+1).padStart(2,'0')} / PROJETO PÚBLICO`;
+   const title=document.createElement('h4'),link=document.createElement('a');link.href=`https://github.com/GuilhermeBiancardi/${encodeURIComponent(repo.name)}`;link.target='_blank';link.rel='noopener';link.append(document.createTextNode(repo.name));const arrow=document.createElement('span');arrow.textContent='↗';arrow.setAttribute('aria-hidden','true');link.append(arrow);title.append(link);
+   const description=document.createElement('p');description.textContent=repo.description||'Explore o código e os detalhes no repositório.';
+   const language=document.createElement('span');language.className='project-language';language.textContent=repo.language||'Código aberto';card.append(label,title,description,language);fragment.append(card);
+  });
+  track.replaceChildren(fragment);track.scrollLeft=0;controls();status.textContent=`${repos.length} projetos públicos · Deslize ou use as setas para explorar.`;
+ }
+ async function load(){
+  let cached;
+  try{cached=JSON.parse(localStorage.getItem(cacheKey));if(Array.isArray(cached?.repos)&&cached.repos.length){render(cached.repos);if(Date.now()-cached.time<lifetime)return;}}catch{}
+  try{
+   const response=await fetch('https://api.github.com/users/GuilhermeBiancardi/repos?type=owner&sort=updated&direction=desc&per_page=100',{headers:{Accept:'application/vnd.github+json'},signal:AbortSignal.timeout(10000)});
+   if(!response.ok)throw new Error('GitHub indisponível');
+   const data=await response.json();if(!Array.isArray(data))throw new Error('Resposta inválida');
+   const eligible=data.filter(repo=>!repo.fork&&!repo.archived&&!repo.disabled&&!['guilhermebiancardi','curriculo'].includes(repo.name.toLowerCase()));
+   const neural=eligible.find(repo=>repo.name.toLowerCase()==='neural-network-php');
+   const markov=eligible.find(repo=>repo.name.toLowerCase()==='markovassetmodel');
+   const selected=eligible.filter(repo=>repo!==markov).slice(0,markov?8:9);
+   if(neural&&!selected.includes(neural)){selected.pop();selected.push(neural);}
+   if(markov){const index=selected.indexOf(neural);selected.splice(index>=0?index+1:selected.length,0,markov);}
+   // Explicit selections stay visible regardless of their update dates.
+   const additions=['LinearRegression','NavyBayes-class'].map(name=>data.find(repo=>!repo.disabled&&repo.name.toLowerCase()===name.toLowerCase())).filter(Boolean);
+   additions.forEach(repo=>{const existing=selected.findIndex(item=>item.name.toLowerCase()===repo.name.toLowerCase());if(existing>=0)selected.splice(existing,1);});
+   const anchor=selected.indexOf(markov)>=0?selected.indexOf(markov):selected.indexOf(neural);
+   selected.splice(anchor>=0?anchor+1:selected.length,0,...additions);
+   const repos=selected.map(({name,description,language})=>({name,description,language}));
+   if(!repos.length){status.textContent='Explore mais projetos no link do GitHub acima.';return;}
+   render(repos);try{localStorage.setItem(cacheKey,JSON.stringify({time:Date.now(),repos}));}catch{}
+  }catch{status.textContent='A atualização do GitHub está indisponível. Explore os projetos exibidos ou acesse o perfil acima.';}
+ }
+ controls();load();
+})();
