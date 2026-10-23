@@ -1,0 +1,40 @@
+name: Publicar currículo
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preparar site e certificados
+        env:
+          GOOGLE_DRIVE_API_KEY: ${{ secrets.GOOGLE_DRIVE_API_KEY }}
+        run: |
+          mkdir -p _site
+          cp index.html style.css app.js perfil.jpg _site/
+          python3 - <<'PY'
+          import os, json
+          from pathlib import Path
+          key = os.environ['GOOGLE_DRIVE_API_KEY']
+          if not key: raise SystemExit('Configure GOOGLE_DRIVE_API_KEY')
+          config = {'folderId': '1LQTEz0UUoT-yd49_1r5YneF6kZ03s9yC', 'apiKey': key}
+          Path('_site/certificates-config.js').write_text('window.certificateSource = ' + json.dumps(config) + ';')
+          PY
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v5
